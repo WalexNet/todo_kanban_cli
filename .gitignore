@@ -1,0 +1,27 @@
+# Compilación Free Pascal / Lazarus
+*.o
+*.ppu
+*.compiled
+*.bak
+*.or
+*.rst
+*.rsj
+*.dbg
+
+# Directorios de compilación
+lib/
+backup/
+*.lps
+
+# Ejecutable
+/src/todo
+
+# Archivos de datos y temporales
+tasks.dat
+tasks.dat.tmp
+*.log
+
+# Sistema y editores
+.DS_Store
+.vscode/
+.idea/
