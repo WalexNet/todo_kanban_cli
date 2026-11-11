@@ -16,7 +16,8 @@ const
   DEFAULT_CATEGORY = 'General';
   FILE_FORMAT_VERSION = 2;
   FILE_MAGIC = 'TODO-FPC-2';
-  MAX_WIP = 3; { Limite de tareas simultaneas EN TRABAJO }
+  DEFAULT_WIP = 3; { Limite inicial de tareas EN TRABAJO }
+  MAX_ALLOWED_WIP = 1000; { Limite superior de configuracion }
 
 type
   TPriority = (prBaja, prMedia, prAlta);

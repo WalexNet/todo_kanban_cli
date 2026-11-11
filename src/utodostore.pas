@@ -17,6 +17,10 @@ type
     FItems: TTaskArray;
     FFileName: string;
     FNextID: LongInt;
+    FMaxWIP: Integer;
+    FConfigFileName: string;
+    procedure LoadWIP;
+    procedure SaveWIP(AValue: Integer);
     function IndexOf(AID: LongInt): Integer;
     procedure IncludeLoadedTask(const ATask: TTaskRecord);
     procedure Save;
@@ -36,13 +40,17 @@ type
     procedure Reopen(AID: LongInt);
     function CountByStatus(AStatus: TTaskStatus): Integer;
     function RemoveMany(const AIDs: TIdArray): Integer;
+    procedure SetWIP(AValue: Integer);
+    procedure ResetWIP;
     property FileName: string read FFileName;
+    property ConfigFileName: string read FConfigFileName;
+    property MaxWIP: Integer read FMaxWIP;
   end;
 
 implementation
 
 uses
-  BaseUnix;
+  BaseUnix, Classes;
 
 function DefaultFileName: string;
 var
@@ -67,10 +75,80 @@ begin
   else
     FFileName := DefaultFileName;
   FNextID := 1;
+  FMaxWIP := DEFAULT_WIP;
+  FConfigFileName := IncludeTrailingPathDelimiter(ExtractFileDir(FFileName)) + 'config.dat';
   SetLength(FItems, 0);
   if SizeOf(TTaskDiskRecord) <> 2150 then
     raise Exception.Create('Formato binario incompatible: tamano de registro inesperado.');
+  LoadWIP;
   Load;
+end;
+
+{ config.dat contiene una unica linea: WIP=N. No altera tasks.dat. }
+procedure TTodoStore.LoadWIP;
+var
+  Lines: TStringList;
+  Value: Integer;
+  Raw: string;
+begin
+  FMaxWIP := DEFAULT_WIP;
+  if not FileExists(FConfigFileName) then Exit;
+  Lines := TStringList.Create;
+  try
+    Lines.LoadFromFile(FConfigFileName);
+    if Lines.Count <> 1 then
+      raise Exception.CreateFmt('Configuracion invalida en %s.', [FConfigFileName]);
+    Raw := Trim(Lines[0]);
+    Value := 0;
+    if (Copy(Raw, 1, 4) <> 'WIP=') or
+       (not TryStrToInt(Copy(Raw, 5, MaxInt), Value)) or
+       (Value < 1) or (Value > MAX_ALLOWED_WIP) then
+      raise Exception.CreateFmt('WIP invalido en %s (rango: 1..%d).',
+        [FConfigFileName, MAX_ALLOWED_WIP]);
+    FMaxWIP := Value;
+  finally
+    Lines.Free;
+  end;
+end;
+
+procedure TTodoStore.SaveWIP(AValue: Integer);
+var
+  Lines: TStringList;
+  TempName, Dir: string;
+begin
+  Dir := ExtractFileDir(FConfigFileName);
+  if (Dir <> '') and (not DirectoryExists(Dir)) and
+     (not ForceDirectories(Dir)) then
+    raise Exception.CreateFmt('No se pudo crear el directorio %s.', [Dir]);
+
+  TempName := FConfigFileName + '.tmp';
+  Lines := TStringList.Create;
+  try
+    try
+      Lines.Add('WIP=' + IntToStr(AValue));
+      Lines.SaveToFile(TempName);
+      if fpRename(PChar(TempName), PChar(FConfigFileName)) <> 0 then
+        raise Exception.CreateFmt('No se pudo actualizar %s.', [FConfigFileName]);
+    except
+      DeleteFile(TempName);
+      raise;
+    end;
+  finally
+    Lines.Free;
+  end;
+end;
+
+procedure TTodoStore.SetWIP(AValue: Integer);
+begin
+  if (AValue < 1) or (AValue > MAX_ALLOWED_WIP) then
+    raise Exception.CreateFmt('WIP debe estar entre 1 y %d.', [MAX_ALLOWED_WIP]);
+  SaveWIP(AValue);
+  FMaxWIP := AValue;
+end;
+
+procedure TTodoStore.ResetWIP;
+begin
+  SetWIP(DEFAULT_WIP);
 end;
 
 function TTodoStore.IndexOf(AID: LongInt): Integer;
@@ -284,9 +362,9 @@ begin
     raise Exception.CreateFmt('La tarea #%d ya esta en estado %s.',
       [AID, StatusText(ANewStatus)]);
 
-  if (ANewStatus = tsEnTrabajo) and (CountByStatus(tsEnTrabajo) >= MAX_WIP) then
+  if (ANewStatus = tsEnTrabajo) and (CountByStatus(tsEnTrabajo) >= FMaxWIP) then
     raise Exception.CreateFmt('Limite WIP alcanzado (%d). Finaliza o mueve otra tarea.',
-      [MAX_WIP]);
+      [FMaxWIP]);
 
   if (OldStatus = tsCompletada) and (ANewStatus <> tsCompletada) then
     FItems[I].CompletedAt := 0;

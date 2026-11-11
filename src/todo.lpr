@@ -227,6 +227,34 @@ begin
   PrintSuccess(Format('%d tarea(s) eliminada(s).', [Removed]));
 end;
 
+procedure RunWIP(AStore: TTodoStore);
+var
+  Value: Integer;
+  Action: string;
+begin
+  if ParamCount = 1 then
+  begin
+    PrintWIP(AStore);
+    Exit;
+  end;
+
+  Action := LowerCase(ParamStr(2));
+  if (Action = 'set') and (ParamCount = 3) then
+  begin
+    if not TryStrToInt(ParamStr(3), Value) then
+      raise Exception.Create('El limite WIP debe ser un numero entero.');
+    AStore.SetWIP(Value);
+    PrintSuccess(Format('Limite WIP establecido en %d.', [AStore.MaxWIP]));
+  end
+  else if (Action = 'reset') and (ParamCount = 2) then
+  begin
+    AStore.ResetWIP;
+    PrintSuccess(Format('Limite WIP restaurado a %d.', [AStore.MaxWIP]));
+  end
+  else
+    raise Exception.Create('Uso: todo wip | todo wip set N | todo wip reset');
+end;
+
 procedure RunCommand(AStore: TTodoStore);
 var
   Cmd, Filter, Action, CatFilter, PriorityFilter: string;
@@ -320,6 +348,8 @@ begin
     RequireParams(1);
     PrintCategories(AStore);
   end
+  else if Cmd = 'wip' then
+    RunWIP(AStore)
   else if Cmd = 'stats' then
   begin
     RequireParams(1);

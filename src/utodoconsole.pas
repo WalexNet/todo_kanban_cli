@@ -15,6 +15,7 @@ procedure PrintDetail(const ATask: TTaskRecord);
 procedure PrintBoard(AStore: TTodoStore; const ACategory: string = '');
 procedure PrintCategories(AStore: TTodoStore);
 procedure PrintStats(AStore: TTodoStore);
+procedure PrintWIP(AStore: TTodoStore);
 procedure PrintSuccess(const AMessage: string);
 procedure PrintError(const AMessage: string);
 function Prompt(const AMessage: string): string;
@@ -33,6 +34,11 @@ const
   BLUE = ESC + '34m';
   MAGENTA = ESC + '35m';
   DIM = ESC + '2m';
+  { Secuencias UTF-8 expresadas como bytes para evitar conversiones
+    implicitas a UnicodeString en concatenaciones de AnsiString. }
+  UTF8_DOT = #$C2#$B7;
+  UTF8_ELLIPSIS = #$E2#$80#$A6;
+  UTF8_YES = 's'#$C3#$AD;
 
 function ColorsEnabled: Boolean;
 begin
@@ -139,10 +145,13 @@ begin
   Writeln('  todo rm 2 4-7 --yes             Eliminar sin confirmacion');
   Writeln('  todo show 3                     Ver detalle');
   Writeln('  todo stats                      Estadisticas y limite WIP');
+  Writeln('  todo wip                        Consultar limite WIP');
+  Writeln('  todo wip set 5                  Configurar limite WIP');
+  Writeln('  todo wip reset                  Restaurar limite por defecto');
   Writeln('  todo path                       Ruta del archivo binario');
   Writeln('  todo help                       Esta ayuda');
   Writeln;
-  Writeln('Estado inicial: CREADA. Limite EN TRABAJO: ', MAX_WIP, '.');
+  Writeln('Estado inicial: CREADA. Limite WIP inicial: ', DEFAULT_WIP, '.');
   Writeln('Prioridades: baja, media (por defecto), alta.');
   Writeln('Categoria: texto libre, General por defecto (max. 63 bytes UTF-8).');
   Writeln('Fecha: AAAA-MM-DD. En edicion, "-" elimina el vencimiento.');
@@ -158,11 +167,11 @@ var
   DisplayIt: Boolean;
   Heading: string;
 begin
-  Heading := 'TAREAS · ' + UpperCase(AFilter);
+  Heading := 'TAREAS ' + UTF8_DOT + ' ' + UpperCase(AFilter);
   if ACategory <> '' then
-    Heading := Heading + ' · ' + ACategory;
+    Heading := Heading + ' ' + UTF8_DOT + ' ' + ACategory;
   if APriority <> '' then
-    Heading := Heading + ' · Prioridad ' + APriority;
+    Heading := Heading + ' ' + UTF8_DOT + ' Prioridad ' + APriority;
   Writeln(Paint(Heading, BOLD + CYAN));
   Writeln(Paint(StringOfChar('-', 76), DIM));
   Shown := 0;
@@ -277,11 +286,32 @@ begin
   Writeln('  Total:                 ', AStore.Count);
   Writeln('  Creadas:               ', Created);
   Writeln('  Pendientes:            ', Pending);
-  Writeln('  En trabajo:            ', Working, '/', MAX_WIP);
+  Writeln('  En trabajo:            ', Working, '/', AStore.MaxWIP);
   Writeln('  Completadas:           ', Done);
   Writeln('  Sin completar:         ', Created + Pending + Working);
   Writeln('  Sin completar alta:    ', HighPriority);
   Writeln('  Vencidas abiertas:     ', Overdue);
+end;
+
+procedure PrintWIP(AStore: TTodoStore);
+var
+  Working, FreeSlots: Integer;
+begin
+  Working := AStore.CountByStatus(tsEnTrabajo);
+  FreeSlots := AStore.MaxWIP - Working;
+  if FreeSlots < 0 then FreeSlots := 0;
+  Writeln(Paint('TODO · Configuracion WIP', BOLD + CYAN));
+  Writeln;
+  Writeln('  Limite WIP:   ', AStore.MaxWIP);
+  Writeln('  En trabajo:   ', Working);
+  Writeln('  Disponibles:  ', FreeSlots);
+  Writeln;
+  if Working > AStore.MaxWIP then
+    Writeln(Paint('  Estado: EXCEDIDO. No se admiten nuevas tareas EN TRABAJO.', RED))
+  else if Working = AStore.MaxWIP then
+    Writeln(Paint('  Estado: LIMITE ALCANZADO.', YELLOW))
+  else
+    Writeln(Paint('  Estado: OK.', GREEN));
 end;
 
 { Contar caracteres UTF-8 (aproximacion: una columna por punto de codigo).
@@ -309,11 +339,11 @@ begin
       CutPos := I;
     end;
   { Copy hasta el comienzo del siguiente caracter evita partir secuencias UTF-8. }
-  if (AWidth = 1) then Exit('…');
-  if CutPos = 0 then Exit('…');
+  if (AWidth = 1) then Exit(UTF8_ELLIPSIS);
+  if CutPos = 0 then Exit(UTF8_ELLIPSIS);
   I := CutPos + 1;
   while (I <= Length(S)) and ((Ord(S[I]) and $C0) = $80) do Inc(I);
-  Result := Copy(S, 1, I - 1) + '…';
+  Result := Copy(S, 1, I - 1) + UTF8_ELLIPSIS;
 end;
 
 function PadCell(const S: string; AWidth: Integer): string;
@@ -354,9 +384,10 @@ begin
     if Counts[S] > MaxRows then MaxRows := Counts[S];
   end;
   Head := 'TODO · TABLERO KANBAN';
-  if ACategory <> '' then Head := Head + ' · ' + ACategory;
+  if ACategory <> '' then Head := Head + ' ' + UTF8_DOT + ' ' + ACategory;
   Writeln(Paint(Head, BOLD + CYAN));
-  Writeln(Paint(Format('En trabajo: %d/%d', [Counts[2], MAX_WIP]), DIM));
+  Writeln(Paint(Format('En trabajo (global): %d/%d',
+    [AStore.CountByStatus(tsEnTrabajo), AStore.MaxWIP]), DIM));
   Writeln;
   { Cada tarjeta usa tres filas; salida de cuatro columnas para terminal ancha. }
   Line := '';
@@ -383,7 +414,7 @@ begin
           case J of
             0: CellText := Format('#%d  [%s]', [Task.ID, UpperCase(PriorityText(Task.Priority))]);
             1: CellText := Task.Description;
-            2: CellText := '· ' + Task.Category;
+            2: CellText := UTF8_DOT + ' ' + Task.Category;
           end;
         end;
         if (Row < Counts[S]) and (J = 0) then
@@ -420,7 +451,7 @@ var
   Answer: string;
 begin
   Answer := LowerCase(Prompt(AMessage + ' [s/N]: '));
-  Result := (Answer = 's') or (Answer = 'si') or (Answer = 'sí');
+  Result := (Answer = 's') or (Answer = 'si') or (Answer = UTF8_YES);
 end;
 
 end.
