@@ -232,4 +232,4 @@ Se pueden proponer mejoras y correcciones mediante *issues* y *pull requests*. P
 
 ## Licencia
 
-**Pendiente de definir.** Antes de distribuir el proyecto como software de código abierto, añade un archivo `LICENSE` con la licencia elegida. Publicar el código en GitHub no concede por sí solo permisos de reutilización, modificación o redistribución.
+### *MIT License*
