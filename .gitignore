@@ -25,3 +25,6 @@ tasks.dat.tmp
 .DS_Store
 .vscode/
 .idea/
+
+# Comprimidos
+*.zip
