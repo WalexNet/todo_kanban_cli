@@ -1,198 +1,116 @@
-# TODO Kanban — Chuleta de comandos
+# Chuleta rápida — TODO Kanban
 
-Guía rápida del gestor de tareas de terminal escrito en **Free Pascal**. Los ejemplos asumen que `todo` está instalado y disponible en el `PATH`.
+Todos los ejemplos se ejecutan con `todo` instalado en el `PATH`; si estás en `src/`, sustituye `todo` por `./todo`.
 
-> Para consultar la ayuda implementada en la versión que tengas compilada: `todo help`.
-
-## 1. Consultar tareas
+## Crear
 
 ```bash
-todo                              # Equivale a: todo ls
-todo ls                           # Todas las tareas no completadas
-todo ls creada                    # Solo tareas CREADAS
-todo ls pendiente                 # Solo tareas PENDIENTES
-todo ls trabajo                   # Solo tareas EN TRABAJO
-todo ls ok                        # Solo tareas COMPLETADAS
-todo ls all                       # Todas las tareas, sin distinción de estado
-
-todo board                        # Tablero Kanban con cuatro columnas
-todo show 3                       # Detalle de la tarea #3
-todo cats                         # Categorías y recuentos
-todo stats                        # Estadísticas por estado y límite WIP
+todo add                                   # Preguntas interactivas
+todo add 'Revisar BGP'                    # Prioridad media, categoría General
+todo add 'Revisar BGP' alta Redes          # Alta, categoría Redes
+todo add 'Preparar backups' media Sistemas --due 2026-12-01
 ```
 
-**Filtros disponibles:**
+Todas las tareas nuevas empiezan en estado **CREADA**. `--due` es opcional y sigue formato AAAA-MM-DD. Para indicar categoría en modo directo, introduce antes la prioridad.
+
+## Listar y mostrar tablero
 
 ```bash
-todo ls --cat Redes               # Tareas no completadas de Redes
-todo ls trabajo --cat Redes       # Tareas en trabajo de Redes
-todo ls --priority alta          # Tareas no completadas de prioridad alta
+todo                       # Lo mismo que todo ls
+todo ls                    # Todas las no completadas
+todo ls creada             # Solo nuevas
+todo ls pendiente          # Solo planificadas
+todo ls trabajo            # Solo en ejecución
+todo ls ok                 # Solo completadas
+todo ls all                # Todas
+todo ls --cat Redes
+todo ls trabajo --cat Redes
+todo ls --priority alta
 todo ls all --cat Redes --priority alta
-                                  # Combina categoría y prioridad
-todo board --cat Sistemas         # Tablero limitado a Sistemas
+todo board                 # Cuatro columnas Kanban
+todo board --cat Sistemas  # Tablero filtrado
+todo show 3                # Detalle de tarea #3
+todo cats                  # Categorías y cantidades
+todo stats                 # Recuento por estado y límite WIP
 ```
 
-## 2. Crear tareas
+## Mover entre estados
 
 ```bash
-todo add                          # Alta interactiva
-todo add 'Revisar configuración BGP'
-todo add 'Preparar laboratorio OSPF' alta Redes
-todo add 'Revisar copias' media Sistemas --due 2026-12-01
+todo 3 plan              # CREADA -> PENDIENTE
+todo 3 start             # PENDIENTE -> EN TRABAJO
+todo 3 ok                # EN TRABAJO -> COMPLETADA
+todo 3 reopen            # COMPLETADA -> PENDIENTE
+
+todo move 3 creada       # Cualquier estado -> CREADA
+todo move 3 pendiente    # Cualquier estado -> PENDIENTE
+todo move 3 trabajo      # Cualquier estado -> EN TRABAJO
+todo move 3 ok           # Cualquier estado -> COMPLETADA
 ```
 
-- Estado inicial: **CREADA**.
-- Prioridades: `baja`, `media` (predeterminada) y `alta`.
-- Categoría predeterminada: `General`.
-- Fecha de vencimiento opcional: `--due AAAA-MM-DD`.
-- En alta directa, para indicar la categoría hay que especificar antes la prioridad.
+`move` permite adelantar o retroceder fases. No permite repetir el mismo estado. El paso a EN TRABAJO falla si se alcanza el límite WIP configurado (por defecto, 3). `reopen` únicamente funciona desde COMPLETADA y borra la fecha de resolución; conserva la fecha del primer inicio.
 
-## 3. Cambiar el estado de una tarea
-
-Flujo habitual:
+## Configurar el límite WIP
 
 ```bash
-todo 3 plan                      # CREADA -> PENDIENTE
-todo 3 start                     # PENDIENTE -> EN TRABAJO
-todo 3 ok                        # EN TRABAJO -> COMPLETADA
-todo 3 reopen                    # COMPLETADA -> PENDIENTE
+todo wip                    # Consultar límite, ocupación y plazas disponibles
+todo wip set 5              # Fijar máximo de cinco tareas EN TRABAJO
+todo wip reset              # Volver al límite predeterminado de 3
 ```
 
-También se puede mover una tarea directamente a otro estado:
+El rango permitido es de **1 a 1000**. El límite se conserva entre ejecuciones en `config.dat`, junto a `tasks.dat`. `board` y `stats` muestran la ocupación respecto al límite actual. Si reduces el WIP por debajo de las tareas que ya están en curso, estas permanecen en su estado; no se admiten nuevas entradas a EN TRABAJO hasta liberar capacidad.
+
+## Editar y borrar
 
 ```bash
-todo move 3 creada
-todo move 3 pendiente
-todo move 3 trabajo
-todo move 3 ok
+todo edit 3                  # Modo interactivo: Enter mantiene el valor
+todo rm 4                    # Pide confirmación
+todo rm 2 4-7 10             # Varios ID y rango
+todo rm 2,4,6 --yes          # Varios ID separados por coma; sin confirmación
 ```
 
-Reglas principales:
+Durante la edición, escribir `-` para categoría restaura `General`; para vencimiento elimina la fecha. El borrado rechaza todo el lote si falta cualquiera de los ID indicados.
 
-- Máximo **3 tareas simultáneas EN TRABAJO** (`MAX_WIP = 3`). La cuarta no puede iniciarse mientras se mantenga ese límite.
-- `move` admite avanzar o retroceder a un estado **distinto del actual**.
-- `reopen` solo se aplica a tareas COMPLETADAS; vuelve a PENDIENTE.
-- `StartedAt` registra el **primer inicio** de una tarea, aunque después cambie de estado.
-- `CompletedAt` se registra al finalizar y se limpia al sacar la tarea de COMPLETADA.
-
-## 4. Editar y eliminar
+## Utilidades
 
 ```bash
-todo edit 3                       # Editar tarea de forma interactiva
-todo rm 4                         # Eliminar tarea #4, con confirmación
-todo rm 2 4-7 10                  # Eliminar varios ID y rangos
-todo rm 2,4,6 --yes               # Eliminar varios ID sin confirmación
+todo help                     # Ayuda
+todo path                     # Ruta real de tasks.dat
+NO_COLOR=1 todo board         # Desactivar secuencias de color
+XDG_DATA_HOME=/tmp/todo-lab todo ls  # Usar almacén de pruebas
 ```
 
-En la edición interactiva:
-
-- `Enter` mantiene el valor actual.
-- `-` en la categoría restablece `General`.
-- `-` en la fecha de vencimiento elimina esa fecha.
-
-El borrado valida **todos los ID del lote** antes de eliminar; si falta uno, rechaza la operación completa. Los identificadores eliminados **no se reutilizan**.
-
-## 5. Ayuda, colores y archivos
+## Sesión de ejemplo
 
 ```bash
-todo help                         # Ayuda integrada
-todo path                         # Ruta del archivo tasks.dat
-NO_COLOR=1 todo board             # Desactivar colores ANSI
-```
-
-El archivo de datos se guarda normalmente en:
-
-```text
-~/.local/share/todo/tasks.dat
-```
-
-Se utiliza `XDG_DATA_HOME` si está definido. Para trabajar con un almacén de pruebas independiente:
-
-```bash
-mkdir -p /tmp/todo-pruebas
-XDG_DATA_HOME=/tmp/todo-pruebas todo add 'Prueba' media Test
-XDG_DATA_HOME=/tmp/todo-pruebas todo board
-XDG_DATA_HOME=/tmp/todo-pruebas todo path
-```
-
-> **Precaución:** comprueba `todo path` antes de borrar archivos de datos. No incluyas `tasks.dat` ni datos personales de tus tareas en el repositorio GitHub.
-
-## 6. Sesión de ejemplo
-
-Los ID son ilustrativos: consulta el ID real asignado en tu instalación.
-
-```bash
-todo add 'Estudiar records en Pascal' media Desarrollo
-todo add 'Preparar laboratorio BGP' alta Redes
+todo add 'Practicar registros' media Pascal
+todo add 'Configurar laboratorio OSPF' alta Redes
 todo ls creada
-
 todo 2 plan
 todo 2 start
 todo board
 todo show 2
-
 todo 2 ok
 todo ls ok
 todo 2 reopen
 todo board --cat Redes
 todo stats
+todo wip
 ```
 
-## 7. Estados del tablero
+## Campos
 
-```mermaid
-flowchart LR
-    A[CREADA] -->|plan| B[PENDIENTE]
-    B -->|start| C[EN TRABAJO]
-    C -->|ok| D[COMPLETADA]
-    D -->|reopen| B
+`ID`, `Description` (hasta 2047 bytes UTF-8), `Category` (63 bytes), `CreatedAt`, `StartedAt` (primer inicio), `CompletedAt` (última finalización válida), `DueAt` (vencimiento opcional), `Priority` (baja/media/alta) y `Status` (creada/pendiente/trabajo/completada).
+
+## Formato y datos de prueba
+
+Las tareas utilizan **formato binario 2** (`tasks.dat`). La configuración WIP se guarda aparte como texto `WIP=N` (`config.dat`); no cambia el formato de las tareas. Los datos binarios antiguos no se leen automáticamente. Para crear un almacén totalmente independiente:
+
+```bash
+mkdir -p /tmp/todo-pruebas
+XDG_DATA_HOME=/tmp/todo-pruebas todo add 'Tarea de prueba' media Test
+XDG_DATA_HOME=/tmp/todo-pruebas todo wip set 2
+XDG_DATA_HOME=/tmp/todo-pruebas todo board
 ```
 
-Este diagrama representa el **flujo habitual**. El comando `move` permite otros cambios entre estados, siempre que el destino sea distinto del actual y se respete el límite WIP.
-
-## 8. Campos de una tarea
-
-| Campo | Significado |
-|---|---|
-| `ID` | Identificador único y persistente |
-| `Description` | Descripción (hasta 2047 bytes UTF-8) |
-| `Category` | Categoría (hasta 63 bytes UTF-8) |
-| `Priority` | Baja, media o alta |
-| `Status` | Creada, pendiente, en trabajo o completada |
-| `CreatedAt` | Fecha y hora de creación |
-| `StartedAt` | Fecha y hora del primer inicio |
-| `CompletedAt` | Fecha y hora de finalización vigente |
-| `DueAt` | Fecha de vencimiento opcional |
-
-## 9. Persistencia y compatibilidad
-
-- Los datos se almacenan en un **archivo binario local** (`tasks.dat`), sin base de datos externa.
-- La versión Kanban utiliza **formato binario 2**, identificado internamente como `TODO-FPC-2`.
-- **No existe migración automática** del formato binario anterior. Conserva una copia de seguridad antes de sustituir una versión antigua.
-- Las operaciones modificadoras guardan el estado tras el cambio. El diseño no incluye bloqueo para procesos simultáneos ni garantías de una base de datos transaccional.
-
-## 10. Referencia rápida
-
-| Necesidad | Comando |
-|---|---|
-| Añadir | `todo add` |
-| Ver activas | `todo ls` |
-| Ver todas | `todo ls all` |
-| Ver terminadas | `todo ls ok` |
-| Tablero Kanban | `todo board` |
-| Planificar | `todo ID plan` |
-| Iniciar | `todo ID start` |
-| Completar | `todo ID ok` |
-| Reabrir | `todo ID reopen` |
-| Cambiar a cualquier otro estado | `todo move ID ESTADO` |
-| Editar | `todo edit ID` |
-| Ver detalle | `todo show ID` |
-| Eliminar | `todo rm ID` |
-| Categorías | `todo cats` |
-| Estadísticas | `todo stats` |
-| Ruta de datos | `todo path` |
-| Ayuda | `todo help` |
-
----
-
-Documentación del proyecto: consulta también `README.md` e `INFORME.md`.
+No ejecutes comandos de borrado sobre tu carpeta de trabajo sin comprobar antes la ruta con `todo path`.

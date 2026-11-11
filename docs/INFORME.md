@@ -1,255 +1,147 @@
-# Informe técnico — TODO Kanban
+# Informe técnico: TODO Kanban (Free Pascal + Lazarus + Linux)
 
-**Proyecto:** TODO, gestor de tareas para terminal Linux  
-**Lenguaje:** Free Pascal / Object Pascal  
-**Entorno de desarrollo:** Lazarus (opcional para compilación por consola)  
-**Documentación:** versión Kanban con formato binario 2  
-**Actualizado:** 10 de noviembre de 2026
+## 1. Objetivo y flujo general
 
-## 1. Objetivo y alcance
+TODO es un comando Linux que mantiene tareas en un archivo binario tipado. Cada ejecución carga las tareas en memoria, ejecuta la operación solicitada y, si hubo cambios, vuelve a guardar el estado completo en disco.
 
-TODO es una aplicación de línea de comandos que organiza tareas en un flujo Kanban y almacena sus datos localmente. Cada ejecución interpreta un comando, carga el almacén de tareas, realiza las consultas o modificaciones solicitadas y, cuando corresponde, guarda los cambios.
-
-No necesita un servidor, una base de datos relacional ni dependencias externas. El diseño permite estudiar con un caso práctico la programación modular, la programación orientada a objetos y el trabajo con archivos binarios en Free Pascal.
-
-La versión documentada incluye cuatro estados, prioridades, categorías, vencimientos opcionales, estadísticas y un límite de tres tareas en trabajo simultáneamente.
-
-## 2. Organización del código
-
-```text
-src/
-├── todo.lpr           # Programa principal y comandos
-├── utodotypes.pas     # Tipos y conversión memoria/disco
-├── utodostore.pas     # Reglas de negocio y persistencia
-└── utodoconsole.pas   # Entrada/salida y vistas de consola
-```
+Flujo para `todo 8 start`:
 
 ```mermaid
 flowchart TD
-    A[Usuario en terminal] --> B[todo.lpr]
-    B --> C[uTodoConsole]
-    B --> D[TTodoStore]
-    C --> D
-    D --> E[uTodoTypes]
-    D --> F[(tasks.dat)]
+    A[Terminal: todo 8 start] --> B[todo.lpr]
+    B --> C[TTodoStore.ChangeStatus]
+    C --> D{ID y WIP válidos?}
+    D -->|Sí| E[Actualizar estado y StartedAt]
+    E --> F[Save: tasks.dat]
+    F --> G[Mensaje en consola]
+    D -->|No| H[Mensaje de error]
 ```
 
-La separación de responsabilidades es deliberada:
+La consola no manipula directamente el archivo. Todas las modificaciones pasan por `TTodoStore`.
 
-- **`todo.lpr`** analiza `ParamCount` y `ParamStr`, valida los argumentos y decide qué operación ejecutar.
-- **`uTodoTypes`** define enumerados, registros y conversiones de representación.
-- **`uTodoStore`** mantiene las tareas en memoria, valida las transiciones y gestiona la lectura/escritura.
-- **`uTodoConsole`** presenta listados, tablero Kanban, estadísticas, detalles y mensajes interactivos.
+## 2. Estados: modelo Kanban
 
-Las operaciones de negocio pasan por `TTodoStore`; la presentación no debe modificar directamente el archivo binario.
+- **CREADA**: registrada, todavía no planificada. Estado al ejecutar `add`.
+- **PENDIENTE**: lista para abordarse.
+- **EN TRABAJO**: en ejecución. Se admite como máximo el **WIP configurado** de tareas simultáneas (valor inicial: 3).
+- **COMPLETADA**: terminada.
 
-## 3. Modelo Kanban
+Las transiciones pueden avanzar o retroceder. `move` permite elegir cualquier estado distinto del actual. `plan`, `start` y `ok` son atajos; `reopen` solo se admite desde COMPLETADA y vuelve a PENDIENTE. La comprobación WIP está en la clase de datos y se aplica independientemente del comando. El valor se consulta con `todo wip`, se cambia con `todo wip set N` y se restablece con `todo wip reset` (rango 1..1000). Si el nuevo límite queda por debajo de la ocupación actual, se conservan las tareas existentes y se impiden nuevas entradas a EN TRABAJO hasta liberar capacidad.
 
-Los estados son:
+En una transición a EN TRABAJO, `StartedAt` recibe la fecha/hora **si todavía está a cero**: representa el primer comienzo, aunque luego vuelva a PENDIENTE. Al completar se registra `CompletedAt=Now`; al salir de COMPLETADA se borra `CompletedAt` para indicar que ya no está terminada.
 
-| Estado | Significado |
-|---|---|
-| `CREADA` | Tarea registrada que todavía no se ha planificado. |
-| `PENDIENTE` | Tarea planificada y lista para comenzar. |
-| `EN TRABAJO` | Tarea iniciada y actualmente en ejecución. |
-| `COMPLETADA` | Tarea terminada. |
+Categoría, prioridad y estado son independientes. Una tarea de categoría `Redes` puede tener prioridad `Alta` y estado `CREADA`.
 
-El flujo habitual se expresa así:
+## 3. `src/utodotypes.pas`: tipos de datos
 
-```mermaid
-flowchart LR
-    A[CREADA] -->|plan| B[PENDIENTE]
-    B -->|start| C[EN TRABAJO]
-    C -->|ok| D[COMPLETADA]
-    D -->|reopen| B
-```
-
-También existe `todo move ID ESTADO` para cambiar directamente a otro estado, incluso retroceder. Se rechaza un movimiento al estado que la tarea ya tiene. `reopen` solo se permite desde `COMPLETADA` y devuelve la tarea a `PENDIENTE`.
-
-### 3.1 Límite WIP
-
-El límite de trabajo simultáneo está configurado en `MAX_WIP = 3`. Antes de entrar en `EN TRABAJO`, la capa de almacenamiento comprueba cuántas tareas ocupan ese estado. Si ya hay tres, la operación se rechaza. Esta validación se aplica con independencia de que la transición se solicite mediante `start` o `move`.
-
-### 3.2 Fechas asociadas al estado
-
-- `CreatedAt`: fecha y hora de creación.
-- `StartedAt`: primer momento en que la tarea entra en `EN TRABAJO`; no se reemplaza en inicios posteriores.
-- `CompletedAt`: fecha y hora de finalización; al salir del estado `COMPLETADA` se limpia.
-- `DueAt`: fecha de vencimiento opcional, independiente del estado.
-
-Por tanto, `StartedAt` no sirve por sí solo para medir el tiempo efectivo dedicado a una tarea: el programa no acumula intervalos de trabajo.
-
-## 4. Estructuras de datos: `uTodoTypes`
-
-Los tipos principales son:
+Define:
 
 ```pascal
 TPriority = (prBaja, prMedia, prAlta);
 TTaskStatus = (tsCreada, tsPendiente, tsEnTrabajo, tsCompletada);
 ```
 
-El registro que utiliza la aplicación en memoria contiene los siguientes campos:
+Define dos registros:
 
 ```pascal
 TTaskRecord = record
   ID: LongInt;
-  Description: string;
-  Category: string;
-  CreatedAt: TDateTime;
-  StartedAt: TDateTime;
-  CompletedAt: TDateTime;
-  DueAt: TDateTime;
+  Description, Category: string;
+  CreatedAt, StartedAt, CompletedAt, DueAt: TDateTime;
   Priority: TPriority;
   Status: TTaskStatus;
 end;
 ```
 
-`TTaskRecord` usa cadenas dinámicas y tipos cómodos para trabajar en Pascal. El archivo utiliza otra representación, `TTaskDiskRecord`, declarada como `packed record`, con arrays de `AnsiChar`, fechas serializadas como `Double` y enumerados representados por `Byte`.
+Este es el **modelo de memoria**: texto dinámico fácil de usar en Object Pascal, fechas `TDateTime` y enumerados legibles.
 
-Esta separación es necesaria: escribir directamente un registro con cadenas dinámicas grabaría referencias internas, no el contenido de esas cadenas. `EncodeTask` convierte un registro de memoria a su representación de disco; `DecodeTask` hace la conversión inversa.
+`TTaskDiskRecord = packed record ... end;` es el **modelo de almacenamiento**: sustituye las cadenas dinámicas por arrays de `AnsiChar` y los enumerados por `Byte`. Se puede guardar con `file of TTaskDiskRecord` porque no contiene cadenas administradas ni punteros a datos externos. Las funciones `EncodeTask` y `DecodeTask` traducen entre ambos modelos.
 
-Las longitudes máximas actuales son **2047 bytes UTF-8** para la descripción y **63 bytes UTF-8** para la categoría. Son límites en bytes, no en número de caracteres Unicode.
+`packed record` evita bytes de relleno por alineación entre los campos. No hace que un `string` dinámico sea seguro para almacenamiento binario: por eso mantenemos la separación de registros.
 
-En el esquema documentado, cada registro de tarea ocupa 2150 bytes: 4 de ID, 2048 de descripción, 64 de categoría, cuatro fechas de 8 bytes y dos campos de 1 byte. Este cálculo depende de los tamaños de tipos previstos por el diseño para FPC en Linux.
+Longitud en disco: ID (4) + descripción (2048) + categoría (64) + cuatro campos `Double` (4x8) + prioridad (1) + estado (1) = **2150 bytes** por registro. En el diseño se asume el tamaño habitual de `LongInt`, `Double` y `Byte` con FPC en Linux. El constructor lo comprueba con `SizeOf`.
 
-## 5. Clase `TTodoStore`: lógica y persistencia
+La codificación del texto es UTF-8, y los máximos se expresan en bytes, no en caracteres. Las constantes `DEFAULT_WIP = 3` y `MAX_ALLOWED_WIP = 1000` fijan el valor inicial y el máximo admitido, pero **no** el límite operativo, que se carga desde la configuración.
 
-`TTodoStore` concentra el estado de la aplicación:
+## 4. `src/utodostore.pas`: POO y persistencia
 
-- `FItems`: array dinámico de tareas.
-- `FNextID`: próximo identificador que se asignará.
-- `FFileName`: ruta al archivo de datos.
+La clase `TTodoStore` encapsula:
 
-La interfaz de la clase permite cargar y consultar tareas, añadirlas, editarlas, cambiar su estado, completarlas, reabrirlas, obtener recuentos y eliminarlas. Los métodos incluyen `Load`, `Count`, `Item`, `Find`, `Exists`, `Add`, `Edit`, `ChangeStatus`, `Complete`, `Reopen`, `CountByStatus` y `RemoveMany`.
+- `FItems`: array dinámico de `TTaskRecord`.
+- `FNextID`: próximo identificador persistente.
+- `FFileName`: ubicación del archivo de tareas.
+- `FConfigFileName`: ruta de `config.dat`.
+- `FMaxWIP`: límite WIP vigente.
 
-### 5.1 Flujo de una modificación
+Funciones públicas: `Load`, `Count`, `Item`, `Find`, `Exists`, `Add`, `Edit`, `ChangeStatus`, `Complete`, `Reopen`, `CountByStatus`, `RemoveMany`, `SetWIP`, `ResetWIP`, y la propiedad de consulta `MaxWIP`. Los métodos privados `LoadWIP` y `SaveWIP` gestionan el archivo de configuración.
+
+Detalles del almacenamiento:
+
+1. `Load` abre `tasks.dat` como archivo de registros, comprueba firma y versión, y reconstruye las tareas mediante `DecodeTask`.
+2. El **registro 0** actúa como cabecera; no es una tarea. Guarda la firma `TODO-FPC-2`, versión 2 y el siguiente ID. Los registros restantes son tareas.
+3. `Save` crea `tasks.dat.tmp`, escribe primero la cabecera y después todas las tareas, cierra y renombra el archivo temporal.
+4. Los ID eliminados no se reutilizan, porque se conserva `FNextID`.
+5. `RemoveMany` valida todos los ID antes de borrar ninguno y admite rangos procesados por el programa principal.
+
+La configuración es independiente del almacén binario:
+
+```text
+~/.local/share/todo/
+├── tasks.dat    # Cabecera y registros de tareas (formato binario 2)
+└── config.dat   # Una línea de texto: WIP=5
+```
+
+`TTodoStore` carga el valor WIP al crearse; si no existe `config.dat`, utiliza `DEFAULT_WIP = 3`. `SetWIP` valida el rango, guarda `config.dat.tmp`, lo renombra y actualiza el valor en memoria. `ResetWIP` escribe el valor inicial. Una configuración existente con contenido inválido se rechaza. La ruta respeta `XDG_DATA_HOME`, por lo que pueden realizarse pruebas en un directorio aislado.
 
 ```mermaid
 flowchart TD
-    A[Comando en terminal] --> B[todo.lpr: validación de argumentos]
-    B --> C[TTodoStore: localizar tarea]
-    C --> D{¿Operación válida?}
-    D -->|No| E[Mensaje de error]
-    D -->|Sí| F[Modificar registro en memoria]
-    F --> G[Save: escribir archivo temporal]
-    G --> H[Renombrar a tasks.dat]
-    H --> I[Confirmación en consola]
+    A[todo wip set N] --> B[todo.lpr: RunCommand]
+    B --> C[TTodoStore.SetWIP]
+    C --> D{1 <= N <= 1000?}
+    D -->|No| E[Error, sin cambio]
+    D -->|Sí| F[SaveWIP: config.dat.tmp]
+    F --> G[Renombrar a config.dat]
+    G --> H[Actualizar FMaxWIP]
 ```
 
-Para `todo 8 start`, la operación localiza el ID, valida la transición y el límite WIP, establece `StartedAt` si no había fecha de primer inicio y guarda el resultado.
+Este almacenamiento resulta didáctico por utilizar `AssignFile`, `Reset`, `Read`, `Rewrite`, `Write`, `FileSize`, `CloseFile` y una clase. **No es un motor de base de datos**: no maneja escrituras simultáneas, transacciones ACID ni recuperación tras cortes eléctricos.
 
-### 5.2 Formato binario versión 2
+## 5. `src/utodoconsole.pas`: interfaz textual
 
-El almacén usa **`TODO-FPC-2`** como firma y la versión **2** como identificador de formato. El registro de índice cero es la cabecera; el resto son tareas.
+Es responsable de `PrintHelp`, `PrintList`, `PrintBoard`, `PrintDetail`, `PrintCategories`, `PrintStats`, `PrintWIP`, `Prompt` y los mensajes.
 
-```mermaid
-flowchart LR
-    A[(tasks.dat)] --> B[Registro 0: cabecera]
-    A --> C[Registro 1: tarea]
-    A --> D[Registro 2: tarea]
-    A --> E[Registro N: tarea]
-    B --> F[Firma, versión y próximo ID]
-```
+El tablero agrupa las tareas en cuatro arrays por estado y dibuja columnas con el ID, prioridad, descripción abreviada y categoría. Usa secuencias de escape ANSI para colorear; `NO_COLOR=1` las desactiva. La presentación no cambia los registros de datos.
 
-La cabecera conserva el siguiente ID, de modo que eliminar una tarea no provoca que su identificador vuelva a utilizarse. Al cargar se comprueban los datos del encabezado antes de reconstruir los registros en memoria.
+Los encabezados contienen caracteres UTF-8. `cwstring` en el programa principal habilita conversiones de codificación correctas en Linux, una corrección que ya fue necesaria durante las primeras pruebas con Lazarus.
 
-El guardado escribe un archivo temporal `tasks.dat.tmp` y después lo renombra al archivo principal. Esto reduce el riesgo de sustituir un archivo válido por otro incompleto durante la escritura, pero **no equivale a una base de datos transaccional**, ni garantiza durabilidad ante todos los fallos.
+## 6. `src/todo.lpr`: programa principal
 
-La versión anterior del formato binario no se migra automáticamente. Para conservar datos de una instalación anterior haría falta desarrollar y probar una conversión específica.
+Lee `ParamCount` y `ParamStr`. Comprueba los parámetros y llama a la clase o a la unidad de consola:
 
-### 5.3 Ubicación y pruebas aisladas
+- `add` admite modo interactivo o argumentos directos.
+- `ls` acepta estado opcional, filtro por categoría y filtro por prioridad.
+- `board` presenta un resumen por columnas, opcionalmente filtrado por categoría.
+- `move` y los atajos numéricos cambian estados.
+- `rm` admite identificadores sueltos, rangos e ID separados por coma, con confirmación salvo `--yes`.
+- `wip` consulta el límite y ocupación, `wip set N` lo modifica y `wip reset` lo restaura.
+- `show`, `stats`, `cats`, `path` y `help` consultan datos. `path` y `help` pueden ejecutarse aunque el archivo de tareas todavía pertenezca a la versión anterior.
 
-La ubicación habitual es:
+La gestión de excepciones presenta errores legibles y retorna código distinto de cero al shell.
 
-```text
-~/.local/share/todo/tasks.dat
-```
+## 7. Decisiones de diseño y límites
 
-El comando `todo path` muestra la ubicación efectiva. Se respeta `XDG_DATA_HOME`, por lo que es posible ejecutar pruebas sin tocar el almacén habitual:
+- Se ha **cambiado el formato a versión 2**. No se migran archivos de versiones anteriores porque estamos en pruebas.
+- `ls` significa «no completadas»; `ls pendiente` se restringe al estado planificado.
+- `StartedAt` mide la primera entrada en EN TRABAJO, no el tiempo total invertido.
+- El WIP se configura en ejecución mediante `todo wip set N`, sin recompilar. `ChangeStatus` bloquea nuevas entradas a EN TRABAJO al alcanzar el límite.
+- Todas las transiciones explícitas son posibles; se rechaza intentar pasar al estado actual. `reopen` requiere COMPLETADA.
+- El tablero tiene ancho fijo pensado para terminal grande; faltaría detectar ancho de terminal para adaptar la salida.
+- No se implementa todavía undo, estados bloqueados, histórico de transiciones, locking ni integración con Lazarus LCL.
 
-```bash
-mkdir -p /tmp/todo-lab
-XDG_DATA_HOME=/tmp/todo-lab todo add "Tarea de prueba" media Test
-XDG_DATA_HOME=/tmp/todo-lab todo board
-```
+## 8. Aprendizaje sugerido
 
-Antes de hacer cambios sobre datos importantes conviene guardar una copia de seguridad de `tasks.dat`.
+Primero estudiar los dos `record` y la conversión `EncodeTask`/`DecodeTask`. Después seguir `TTodoStore.ChangeStatus` y `Save`. Finalmente recorrer `todo.lpr` y comprobar cómo un mismo método atiende `todo N start` y `todo move N trabajo`.
 
-## 6. Interfaz de consola: `uTodoConsole`
+También resulta útil seguir `todo wip set 5` por `RunCommand`, `SetWIP`, `SaveWIP` y `config.dat`, y distinguir la persistencia textual de la persistencia binaria de tareas.
 
-Esta unidad contiene funciones y procedimientos como `PrintHelp`, `PrintList`, `PrintBoard`, `PrintDetail`, `PrintCategories`, `PrintStats`, `Prompt` y mensajes de éxito o error.
-
-`PrintBoard` distribuye las tareas por sus cuatro estados para representarlas en columnas. La salida utiliza secuencias ANSI para el color, y puede desactivarse con:
-
-```bash
-NO_COLOR=1 todo board
-```
-
-El contenido se maneja como UTF-8. En Linux, las conversiones necesarias para la salida de consola se tuvieron en cuenta en el programa principal mediante `cwstring`.
-
-El tablero está pensado para terminales relativamente anchas. La adaptación automática del ancho disponible sigue siendo una mejora pendiente.
-
-## 7. Programa principal: `todo.lpr`
-
-El programa interpreta los argumentos y coordina la ejecución. Los comandos documentados son:
-
-| Grupo | Comandos y ejemplos |
-|---|---|
-| Alta | `todo add`, `todo add "Revisar BGP" alta Redes` |
-| Listado | `todo`, `todo ls`, `todo ls creada`, `todo ls pendiente`, `todo ls trabajo`, `todo ls ok`, `todo ls all` |
-| Filtros | `todo ls --cat Redes`, `todo ls --priority alta` |
-| Tablero | `todo board`, `todo board --cat Sistemas` |
-| Estados | `todo 3 plan`, `todo 3 start`, `todo 3 ok`, `todo 3 reopen`, `todo move 3 trabajo` |
-| Consulta | `todo show 3`, `todo cats`, `todo stats`, `todo path` |
-| Edición | `todo edit 3` |
-| Borrado | `todo rm 2 4-7 10`, `todo rm 2,4,6 --yes` |
-| Ayuda | `todo help` |
-
-`ls` sin un estado específico muestra las tareas no completadas; `ls pendiente` se limita a las tareas que están exactamente en el estado `PENDIENTE`.
-
-La creación puede ser interactiva o directa, con prioridad `media` y categoría `General` como valores predeterminados. Se puede añadir un vencimiento con `--due AAAA-MM-DD`.
-
-El borrado acepta identificadores individuales, listas y rangos. Antes de eliminar, valida todo el conjunto y solicita confirmación salvo que se indique `--yes`.
-
-Los errores se presentan en la consola y las ejecuciones fallidas devuelven un código distinto de cero para que puedan detectarse desde scripts de shell.
-
-Para ejemplos rápidos de todos los comandos, consultar [`CHULETA.md`](CHULETA.md); para la instalación y presentación general, consultar [`README.md`](README.md).
-
-## 8. Compilación e instalación
-
-Desde el directorio `src`:
-
-```bash
-fpc todo.lpr
-./todo help
-```
-
-Para instalar el ejecutable en el entorno del usuario:
-
-```bash
-mkdir -p ~/.local/bin
-install -m 755 todo ~/.local/bin/todo
-```
-
-`~/.local/bin` debe estar incluido en `PATH`. Si otro paquete proporciona un comando con el mismo nombre, utilizar `type -a todo` para comprobar qué ejecutable tiene prioridad.
-
-Lazarus permite abrir el proyecto, inspeccionar sus unidades y depurar métodos como `TTodoStore.ChangeStatus`, pero no es obligatorio para compilar desde la terminal.
-
-## 9. Límites conocidos y posibles mejoras
-
-El programa está diseñado para **uso local, de un solo proceso a la vez**. No proporciona bloqueo de archivos entre procesos, transacciones ACID ni sincronización entre equipos. Ejecutar instancias que modifiquen simultáneamente el mismo almacén puede perder cambios.
-
-Tampoco implementa todavía un historial de movimientos, deshacer operaciones, recuperación automática de archivos corruptos ni migración entre versiones del formato binario. Las fechas `StartedAt` y `CompletedAt` permiten registrar hitos, pero no un seguimiento temporal completo.
-
-Posibles mejoras posteriores: pruebas automatizadas sobre reglas de estado y serialización, detección de ancho de terminal para el tablero, bloqueo de archivos, migración explícita de datos y exportación a formatos portables como JSON o CSV.
-
-## 10. Recorrido recomendado para estudiar el código
-
-1. Leer los enumerados y ambos registros de `uTodoTypes`; comparar las representaciones en memoria y disco.
-2. Seguir `EncodeTask` y `DecodeTask` para entender la serialización.
-3. Revisar el constructor, `Load` y `Save` de `TTodoStore`.
-4. Seguir `ChangeStatus` y comprobar cómo se aplica el límite WIP y se actualizan las fechas.
-5. Seguir en `todo.lpr` el recorrido de `todo 3 start` y compararlo con `todo move 3 trabajo`.
-6. Revisar en `uTodoConsole` cómo se presentan el listado y el tablero sin alterar la lógica de negocio.
-
-En el depurador de Lazarus resulta especialmente útil detenerse en `TTodoStore.ChangeStatus` para observar el estado anterior, el nuevo estado, `StartedAt`, `CompletedAt` y el recuento WIP.
+En Lazarus, un punto de interrupción en `TTodoStore.ChangeStatus` permite inspeccionar `OldStatus`, `ANewStatus`, `FItems[I].StartedAt`, `CompletedAt` y el resultado de `CountByStatus`.
