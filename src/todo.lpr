@@ -7,7 +7,7 @@ uses
   {$IFDEF UNIX}
   cwstring,
   {$ENDIF}
-  SysUtils, uTodoTypes, uTodoStore, uTodoConsole;
+  SysUtils, utodotypes, utodostore, utodoconsole, utodocsv;
 
 const
   MAX_REMOVE_IDS = 1000;
@@ -255,6 +255,28 @@ begin
     raise Exception.Create('Uso: todo wip | todo wip set N | todo wip reset');
 end;
 
+procedure RunExport(AStore: TTodoStore);
+var
+  FileName: string;
+begin
+  RequireParams(2);
+  FileName := ParamStr(2);
+  ExportTasksCSV(AStore, FileName);
+  PrintSuccess(Format('%d tarea(s) exportada(s) a %s.',
+    [AStore.Count, FileName]));
+end;
+
+procedure RunImport(AStore: TTodoStore);
+var
+  Tasks: TTaskArray;
+  N: Integer;
+begin
+  RequireParams(2);
+  Tasks := ReadTasksCSV(ParamStr(2));
+  N := AStore.ImportTasks(Tasks);
+  PrintSuccess(Format('%d tarea(s) importada(s) desde %s.', [N, ParamStr(2)]));
+end;
+
 procedure RunCommand(AStore: TTodoStore);
 var
   Cmd, Filter, Action, CatFilter, PriorityFilter: string;
@@ -348,6 +370,10 @@ begin
     RequireParams(1);
     PrintCategories(AStore);
   end
+  else if Cmd = 'export' then
+    RunExport(AStore)
+  else if Cmd = 'import' then
+    RunImport(AStore)
   else if Cmd = 'wip' then
     RunWIP(AStore)
   else if Cmd = 'stats' then

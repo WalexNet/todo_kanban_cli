@@ -1,4 +1,4 @@
-unit uTodoTypes;
+unit utodotypes;
 
 {$mode objfpc}{$H+}
 {$codepage utf8}

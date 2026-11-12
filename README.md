@@ -1,257 +1,216 @@
 # TODO — Gestor de tareas Kanban para terminal
 
-**TODO** es un gestor de tareas para la línea de comandos de Linux, desarrollado en **Free Pascal (Object Pascal)** con **Lazarus** como entorno de desarrollo. Organiza tareas mediante un flujo Kanban, asigna prioridades y categorías y conserva los datos localmente, sin base de datos ni servicios externos.
+**TODO** es un gestor local de tareas para Linux, escrito en Free Pascal (Object Pascal) y desarrollado con Lazarus. Organiza las tareas con un flujo Kanban de cuatro estados, prioridades, categorías y fechas. El archivo binario `tasks.dat` sigue siendo el almacenamiento principal; la importación y exportación CSV permiten trasladar tareas sin cambiar ese diseño.
 
-También sirve como ejercicio de programación estructurada y orientada a objetos: registros, enumerados, clases, arrays dinámicos, archivos tipados y separación entre lógica de negocio e interfaz de consola.
+El proyecto también sirve para practicar registros, enumerados, clases, arrays dinámicos, archivos tipados y separación de responsabilidades en Free Pascal.
 
 ## Características
 
-- Tablero Kanban con cuatro estados: **CREADA**, **PENDIENTE**, **EN TRABAJO** y **COMPLETADA**.
-- Límite de trabajo en curso (**WIP**) configurable entre 1 y 1000 tareas, con valor inicial de 3 y configuración persistente.
-- Alta de tareas en modo interactivo o directamente mediante argumentos.
-- Prioridades **baja**, **media** y **alta**; categorías de texto libre.
-- Fecha de vencimiento opcional y registro de fechas de creación, primer inicio y finalización.
-- Listados filtrados por estado, categoría y prioridad.
-- Consulta detallada, estadísticas y resumen por categorías.
-- Edición y eliminación de múltiples tareas por ID o rango.
-- Persistencia binaria para las tareas y configuración WIP en un archivo de texto independiente.
-- Salida ANSI en terminales compatibles, con soporte para `NO_COLOR` y `XDG_DATA_HOME`.
+- Estados **CREADA**, **PENDIENTE**, **EN TRABAJO** y **COMPLETADA**.
+- Límite WIP configurable de 1 a 1000 tareas simultáneas (3 inicialmente), persistente en `config.dat`.
+- Alta interactiva o directa, edición, borrado individual o por lotes y cambios de estado.
+- Prioridades baja, media y alta, categorías libres y vencimiento opcional.
+- Registro de fechas de creación, primer inicio y finalización.
+- Listados por estado, categoría o prioridad; tablero, estadísticas y detalle.
+- **Feature 02:** exportación e importación CSV UTF-8, con validación de datos y WIP.
+- Persistencia binaria local, sin base de datos, y salida ANSI desactivable mediante `NO_COLOR=1`.
+- Datos de prueba aislados mediante `XDG_DATA_HOME`.
 
 ## Requisitos
 
-- Linux.
-- **Free Pascal Compiler (FPC)** para compilar el proyecto.
-- Lazarus es opcional, pero útil para abrir y depurar el proyecto desde un IDE.
-- Una terminal compatible con UTF-8; los colores ANSI son opcionales.
-
-No requiere Python, Docker, PostgreSQL ni bibliotecas de terceros.
+Linux, Free Pascal Compiler (FPC) y una terminal UTF-8. Lazarus es opcional para edición y depuración. No requiere Python, Docker, bases de datos ni dependencias de terceros.
 
 ## Compilación e instalación
-
-Clona el repositorio y compila desde el directorio que contiene `todo.lpr`:
 
 ```bash
 git clone https://github.com/WalexNet/todo_kanban_cli.git
 cd todo_kanban_cli/src
-fpc todo.lpr
-```
-
-Prueba el programa sin instalarlo:
-
-```bash
+fpc -B todo.lpr
 ./todo help
 ./todo board
-./todo wip
 ```
 
-Para instalarlo únicamente para tu usuario:
+Para instalarlo en el directorio del usuario:
 
 ```bash
 mkdir -p ~/.local/bin
 install -m 755 todo ~/.local/bin/todo
+type -a todo
 ```
 
-Comprueba que `~/.local/bin` esté incluido en `PATH` y ejecuta `todo help`. Si existe otro ejecutable llamado `todo` en el sistema, comprueba cuál se está ejecutando mediante `type -a todo`.
+Es necesario que `~/.local/bin` figure en `PATH`. Si hay otro comando llamado `todo` instalado, `type -a` permite comprobar cuál se ejecuta.
 
-### Nota sobre FPC y GCC en Manjaro
-
-En el entorno probado con FPC 3.2.2 y GCC 16, el enlazador no localizaba `crtbeginS.o` y `crtendS.o` con las rutas predeterminadas. Se compiló correctamente añadiendo el directorio que informa GCC:
+En una instalación Manjaro con FPC 3.2.2 y GCC 16, las advertencias por `crtbeginS.o` y `crtendS.o` pueden requerir indicar el directorio de los objetos de GCC:
 
 ```bash
 fpc -B -Fl"$(dirname "$(gcc -print-file-name=crtbeginS.o)")" todo.lpr
 ```
 
-Este ajuste es específico del entorno donde se detectó el aviso; no es un requisito general para todas las distribuciones.
+Este ajuste corresponde a ese entorno y no es un requisito general.
 
 ## Uso rápido
 
-### Crear tareas
+### Crear y consultar
 
 ```bash
 todo add
 todo add "Revisar configuración BGP"
 todo add "Preparar laboratorio OSPF" alta Redes
-todo add "Revisar copias de seguridad" media Sistemas --due 2026-12-01
-```
+todo add "Revisar backups" media Sistemas --due 2026-12-01
 
-Si no se especifica prioridad se utiliza `media`; la categoría predeterminada es `General`. Las tareas nuevas se crean en **CREADA**. Para indicar una categoría mediante argumentos, también debes indicar la prioridad.
-
-### Consultar tareas
-
-```bash
-todo                           # Tareas no completadas
-todo ls                        # Tareas no completadas
-todo ls creada                 # Tareas recién creadas
-todo ls pendiente              # Tareas planificadas
-todo ls trabajo                # Tareas en curso
-todo ls ok                     # Tareas completadas
-todo ls all                    # Todas las tareas
-todo ls --cat Redes            # Filtrar por categoría
-todo ls --priority alta        # Filtrar por prioridad
+todo                            # Equivale a todo ls
+todo ls                         # Sin completar
+todo ls creada
+todo ls pendiente
+todo ls trabajo
+todo ls ok
+todo ls all                    # Todas
 todo ls all --cat Redes --priority alta
-
-todo board                     # Tablero Kanban
-todo board --cat Sistemas      # Tablero filtrado
-todo show 3                    # Detalle de una tarea
-todo cats                      # Categorías y recuentos
-todo stats                     # Estadísticas generales y ocupación WIP
+todo board
+todo board --cat Sistemas
+todo show 3
+todo cats
+todo stats
 ```
 
-### Configurar el WIP
+Las nuevas tareas empiezan en `CREADA`, con prioridad `media` y categoría `General` cuando no se especifican otros valores. Para indicar categoría en el alta directa también se debe indicar la prioridad.
 
-El WIP (*Work In Progress*) limita cuántas tareas pueden estar simultáneamente **EN TRABAJO**. El valor inicial es **3**, pero se puede cambiar sin editar el código ni recompilar.
-
-```bash
-todo wip                # Límite actual, tareas en curso y plazas disponibles
-todo wip set 5          # Establecer el límite en 5
-todo wip reset          # Restaurar el valor inicial de 3
-```
-
-El rango admitido es **1 a 1000**. El límite queda guardado en `config.dat` y se recupera al iniciar una nueva ejecución. `todo board` y `todo stats` utilizan el valor actual.
-
-Si se reduce el límite por debajo del número de tareas ya iniciadas, esas tareas conservan su estado. TODO señala que se ha excedido el límite y no permite iniciar otras hasta que vuelva a haber capacidad. No se eliminan ni se modifican automáticamente las tareas existentes.
-
-### Cambiar el estado de una tarea
-
-El flujo habitual es:
+### Flujo Kanban
 
 ```mermaid
 flowchart LR
-    A[CREADA] -->|plan| B[PENDIENTE]
-    B -->|start| C[EN TRABAJO]
-    C -->|ok| D[COMPLETADA]
+    A["CREADA"] -->|plan| B["PENDIENTE"]
+    B -->|start| C["EN TRABAJO"]
+    C -->|ok| D["COMPLETADA"]
     D -->|reopen| B
 ```
 
 ```bash
-todo 3 plan       # CREADA -> PENDIENTE
-todo 3 start      # PENDIENTE -> EN TRABAJO
-todo 3 ok         # EN TRABAJO -> COMPLETADA
-todo 3 reopen     # COMPLETADA -> PENDIENTE
-```
+todo 3 plan
+todo 3 start
+todo 3 ok
+todo 3 reopen
 
-También se pueden mover tareas directamente entre estados:
-
-```bash
 todo move 3 creada
 todo move 3 pendiente
 todo move 3 trabajo
 todo move 3 ok
 ```
 
-`move` permite avanzar o retroceder, pero no repetir el estado actual. `reopen` solo se aplica a tareas completadas. La entrada en **EN TRABAJO** está sujeta al WIP configurado.
+`move` permite avanzar o retroceder, excepto repetir el estado actual. `reopen` se aplica únicamente a tareas completadas. Entrar en `EN TRABAJO` requiere capacidad WIP disponible.
 
-### Editar y eliminar
-
-```bash
-todo edit 3                # Editar una tarea de forma interactiva
-todo rm 4                  # Eliminar una tarea con confirmación
-todo rm 2 4-7 10           # Eliminar varios ID y un rango
-todo rm 2,4,6 --yes        # Omitir confirmación
-```
-
-El borrado valida todos los identificadores del lote antes de efectuar cambios. Durante la edición, `Enter` mantiene el valor existente; `-` permite limpiar la fecha de vencimiento o restaurar la categoría predeterminada, según el campo.
-
-## Ejemplo de sesión
+### Configurar el límite WIP (Feature 01)
 
 ```bash
-todo add "Preparar laboratorio BGP" alta Redes
-todo add "Revisar scripts de backup" media Sistemas
-todo ls creada
-
-todo wip set 5
-todo wip
-
-todo 1 plan
-todo 1 start
-todo board
-todo show 1
-
-todo 1 ok
-todo ls ok
-todo stats
+todo wip             # Consultar ocupación y plazas
+todo wip set 5       # Fijar el límite en 5
+todo wip reset       # Restaurar el valor inicial de 3
 ```
 
-Los ID mostrados son ilustrativos: en una instalación existente pueden ser distintos.
+El límite válido está entre 1 y 1000 y se almacena en `config.dat`. Si se reduce por debajo del número de tareas en trabajo, estas conservan el estado; se bloquean nuevas entradas hasta liberar capacidad.
+
+### Editar y borrar
+
+```bash
+todo edit 3
+todo rm 4
+todo rm 2 4-7 10
+todo rm 2,4,6 --yes
+```
+
+La edición interactiva conserva el valor con `Enter`; `-` restaura la categoría `General` o elimina el vencimiento según el campo. El borrado comprueba todos los IDs antes de retirar tareas.
+
+## Intercambio CSV (Feature 02)
+
+```bash
+todo export tareas.csv
+todo import tareas.csv
+```
+
+`export` crea un CSV con **todas** las tareas y no sobrescribe un archivo que ya exista. `import` añade los registros al almacén actual tras validar el archivo completo y comprobar el WIP resultante. Los IDs del CSV no se reutilizan: se asignan nuevos identificadores para evitar conflictos. Por tanto, repetir una importación puede duplicar tareas.
+
+**El CSV no reemplaza `tasks.dat`, no cambia su formato y no incluye `config.dat`.** No debe considerarse un respaldo completo de la aplicación.
+
+### Formato CSV
+
+Se utiliza UTF-8, separador `;`, cabecera obligatoria y nueve columnas en orden fijo:
+
+```csv
+id;descripcion;categoria;fecha_creacion;fecha_inicio;fecha_finalizacion;fecha_vencimiento;prioridad;estado
+1;Preparar laboratorio BGP;Redes;2026-10-27T11:45:09.874;2026-10-27T11:46:43.297;2026-10-27T11:47:22.094;;alta;ok
+```
+
+Las fechas usan `YYYY-MM-DDTHH:MM:SS.mmm`. Las fechas opcionales sin valor se representan con campos vacíos. Las prioridades válidas son `baja`, `media` y `alta`; los estados CSV son `creada`, `pendiente`, `trabajo` y `ok`.
+
+El formato maneja comillas dobles, puntos y coma y caracteres UTF-8. La descripción admite hasta 2047 bytes y la categoría hasta 63 bytes UTF-8. **No se admiten saltos de línea ni NUL** en descripciones y categorías, aunque un CSV pueda representar campos multilínea. Si hay datos inválidos o se supera el WIP, se cancela todo el lote de importación.
+
+### Probar una importación sin alterar los datos reales
+
+```bash
+mkdir -p /tmp/todo-import-lab
+XDG_DATA_HOME=/tmp/todo-import-lab ./todo path
+XDG_DATA_HOME=/tmp/todo-import-lab ./todo import tareas.csv
+XDG_DATA_HOME=/tmp/todo-import-lab ./todo ls all
+```
+
+Los comandos anteriores se ejecutan desde `src/`. Si `todo` está instalado en `PATH`, se puede omitir `./`.
 
 ## Almacenamiento
 
-Por defecto, TODO utiliza:
+Por defecto, los archivos locales se encuentran en:
 
 ```text
 ~/.local/share/todo/
-├── tasks.dat       # Datos binarios de las tareas
-└── config.dat      # Configuración en texto: WIP=N
+├── tasks.dat     # Cabecera y tareas en formato binario 2
+└── config.dat    # Configuración de WIP: WIP=N (cuando se haya guardado)
 ```
-
-El archivo `config.dat` aparece cuando se guarda una configuración WIP. Si no existe, se utiliza el límite predeterminado de 3. Para consultar la ruta efectiva de las tareas:
 
 ```bash
 todo path
+NO_COLOR=1 todo board
 ```
 
-El programa respeta `XDG_DATA_HOME`, lo que permite usar un almacén independiente para pruebas:
+`tasks.dat` emplea la firma `TODO-FPC-2`; el primer registro es una cabecera con versión y siguiente ID. Los registros siguientes contienen las tareas. `config.dat` es independiente; si no existe se utiliza WIP 3. La aplicación respeta `XDG_DATA_HOME`.
 
-```bash
-mkdir -p /tmp/todo-lab
-XDG_DATA_HOME=/tmp/todo-lab todo add "Tarea de prueba" media Test
-XDG_DATA_HOME=/tmp/todo-lab todo wip set 2
-XDG_DATA_HOME=/tmp/todo-lab todo board
-```
+La escritura de tareas utiliza un archivo temporal `tasks.dat.tmp` y posterior renombrado. Está diseñada para uso personal local, no para varias instancias escribiendo simultáneamente; no proporciona bloqueo, transacciones ACID ni garantía de durabilidad ante un apagado repentino. Los archivos binarios anteriores a la versión 2 no se migran automáticamente.
 
-**Formato de datos:** las tareas utilizan el formato binario **versión 2**, identificado con la firma `TODO-FPC-2`. El primer registro es una cabecera con información de versión y el siguiente ID; el resto contiene las tareas. Los registros en disco emplean campos de tamaño fijo, separados de los registros de memoria con cadenas dinámicas. La introducción de `config.dat` **no modifica el formato de `tasks.dat`**.
-
-**Compatibilidad:** los archivos binarios de la versión anterior no se migran automáticamente. Antes de actualizar una instalación con datos reales, realiza una copia de seguridad de `tasks.dat`.
-
-**Limitación:** el almacenamiento está pensado para uso local por una instancia a la vez. No implementa bloqueo entre procesos, transacciones ACID ni sincronización multiusuario.
-
-## Estructura del código
+## Estructura del proyecto
 
 ```text
-src/
-├── todo.lpr           # Entrada principal y análisis de argumentos
-├── utodotypes.pas     # Tipos, registros y conversión memoria/disco
-├── utodostore.pas     # Gestión de tareas, estados y persistencia
-└── utodoconsole.pas   # Presentación, tablero e interacción en consola
+todo_kanban_cli/
+├── README.md
+├── src/
+│   ├── todo.lpr           # Punto de entrada y comandos
+│   ├── utodotypes.pas     # Tipos, records y conversiones
+│   ├── utodostore.pas     # Tareas, WIP y persistencia
+│   ├── utodoconsole.pas   # Visualización y ayuda
+│   └── utodocsv.pas       # Intercambio CSV
+└── docs/
+    ├── CHULETA.md
+    └── INFORME.md
 ```
 
 ```mermaid
 flowchart TD
-    U[Usuario / terminal] --> M[todo.lpr]
-    M --> C[uTodoConsole]
-    M --> S[TTodoStore]
-    C --> S
-    S --> T[uTodoTypes]
-    S --> F[(tasks.dat)]
-    S --> G[(config.dat)]
+    U["Terminal"] --> CLI["todo.lpr"]
+    CLI --> CON["utodoconsole.pas"]
+    CLI --> CSV["utodocsv.pas"]
+    CLI --> STORE["TTodoStore en utodostore.pas"]
+    CSV --> CF[("tareas.csv")]
+    CSV --> STORE
+    STORE --> DATA[("tasks.dat")]
+    STORE --> CONFIG[("config.dat")]
+    STORE --> TYPES["utodotypes.pas"]
 ```
 
-`uTodoTypes` define los enumerados, los registros y las constantes de configuración. `TTodoStore` encapsula las tareas, las validaciones, la carga y guardado binarios, y la gestión persistente del WIP. `uTodoConsole` muestra listados, tablero, estadísticas y consulta WIP. `todo.lpr` interpreta los argumentos y coordina las operaciones.
+## Validación de la Feature 02
 
-## Detalles técnicos
+Se ha compilado con FPC 3.2.2. En un directorio de pruebas aislado se exportaron e importaron 11 tareas, conservando sus campos y fechas (incluidos los milisegundos), salvo los IDs reasignados. Se comprobó el rechazo por WIP excedido y por prioridad inválida, sin modificación del hash de `tasks.dat`; también se verificaron las comillas, el separador `;`, los caracteres UTF-8 y el rechazo de descripciones con saltos de línea.
 
-- **Lenguaje:** Object Pascal / Free Pascal.
-- **Modelo de datos:** `record` para las tareas, `packed record` para la representación binaria y enumerados para estados y prioridades.
-- **Persistencia de tareas:** `file of`, lectura/escritura de registros y guardado mediante archivo temporal antes del renombrado.
-- **Persistencia de WIP:** lectura de `config.dat`, validación del rango y escritura mediante archivo temporal antes del renombrado.
-- **Identificadores:** los ID eliminados no se reutilizan.
-- **Descripción:** hasta 2047 bytes UTF-8.
-- **Categoría:** hasta 63 bytes UTF-8.
-- **Fechas:** creación, primer inicio, finalización y vencimiento opcional.
-- **Colores:** se pueden desactivar mediante `NO_COLOR=1`.
+## Estado y contribuciones
 
-```bash
-NO_COLOR=1 todo board
-```
-
-## Estado del proyecto
-
-Proyecto funcional de aprendizaje y uso personal. El WIP configurable y persistente ya está implementado. Entre las posibles mejoras futuras se encuentran un tablero adaptable al ancho de la terminal, un historial de transiciones, bloqueo de acceso concurrente y mecanismos de migración entre versiones del archivo binario.
-
-## Contribuciones
-
-Se pueden proponer mejoras y correcciones mediante *issues* y *pull requests*. Para cambios que afecten al formato de almacenamiento, conviene documentar explícitamente la compatibilidad de los archivos existentes.
+Aplicación funcional de aprendizaje y uso personal. Se admiten propuestas mediante *issues* y *pull requests*. Cualquier modificación futura del formato binario debe documentar su compatibilidad. La importación/exportación CSV y el WIP configurable no alteran la versión 2.
 
 ## Licencia
 
-### *MIT License*
+MIT License. Véase [LICENSE](LICENSE).

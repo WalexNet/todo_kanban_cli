@@ -1,4 +1,4 @@
-unit uTodoConsole;
+unit utodoconsole;
 
 {$mode objfpc}{$H+}
 {$codepage utf8}
@@ -6,7 +6,7 @@ unit uTodoConsole;
 interface
 
 uses
-  SysUtils, uTodoTypes, uTodoStore;
+  SysUtils, utodotypes, utodostore;
 
 procedure PrintHelp;
 procedure PrintList(AStore: TTodoStore; const AFilter: string;
@@ -148,6 +148,8 @@ begin
   Writeln('  todo wip                        Consultar limite WIP');
   Writeln('  todo wip set 5                  Configurar limite WIP');
   Writeln('  todo wip reset                  Restaurar limite por defecto');
+  Writeln('  todo export tareas.csv          Exportar todas las tareas a CSV');
+  Writeln('  todo import tareas.csv          Importar tareas desde CSV');
   Writeln('  todo path                       Ruta del archivo binario');
   Writeln('  todo help                       Esta ayuda');
   Writeln;

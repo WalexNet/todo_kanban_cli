@@ -1,4 +1,4 @@
-unit uTodoStore;
+unit utodostore;
 
 {$mode objfpc}{$H+}
 {$codepage utf8}
@@ -6,7 +6,7 @@ unit uTodoStore;
 interface
 
 uses
-  SysUtils, uTodoTypes;
+  SysUtils, utodotypes;
 
 function DefaultFileName: string;
 
@@ -40,6 +40,7 @@ type
     procedure Reopen(AID: LongInt);
     function CountByStatus(AStatus: TTaskStatus): Integer;
     function RemoveMany(const AIDs: TIdArray): Integer;
+    function ImportTasks(const ATasks: TTaskArray): Integer;
     procedure SetWIP(AValue: Integer);
     procedure ResetWIP;
     property FileName: string read FFileName;
@@ -316,6 +317,50 @@ begin
   Inc(FNextID);
   Save;
   Result := Task.ID;
+end;
+
+{ Insercion en lote: no modifica el almacenamiento hasta terminar las validaciones. }
+function TTodoStore.ImportTasks(const ATasks: TTaskArray): Integer;
+var
+  I, ExistingCount, NewWIP: Integer;
+  OldNextID: LongInt;
+  Task: TTaskRecord;
+  Disk: TTaskDiskRecord;
+begin
+  Result := Length(ATasks);
+  if Result = 0 then Exit;
+  ExistingCount := Count;
+  OldNextID := FNextID;
+  if (Int64(FNextID) + Result) > High(LongInt) then
+    raise Exception.Create('No hay identificadores suficientes para importar.');
+
+  NewWIP := CountByStatus(tsEnTrabajo);
+  for I := 0 to High(ATasks) do
+  begin
+    Task := ATasks[I];
+    Task.ID := FNextID + I;
+    EncodeTask(Task, Disk);
+    if Task.Status = tsEnTrabajo then Inc(NewWIP);
+  end;
+  if NewWIP > FMaxWIP then
+    raise Exception.CreateFmt('Importacion cancelada: WIP resultante %d supera el limite %d.',
+      [NewWIP, FMaxWIP]);
+
+  try
+    SetLength(FItems, ExistingCount + Result);
+    for I := 0 to High(ATasks) do
+    begin
+      Task := ATasks[I];
+      Task.ID := FNextID + I;
+      FItems[ExistingCount + I] := Task;
+    end;
+    Inc(FNextID, Result);
+    Save;
+  except
+    SetLength(FItems, ExistingCount);
+    FNextID := OldNextID;
+    raise;
+  end;
 end;
 
 procedure TTodoStore.Edit(AID: LongInt; const ADescription: string;
